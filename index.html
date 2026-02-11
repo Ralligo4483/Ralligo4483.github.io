@@ -21,7 +21,12 @@
     <div class="app-container">
         <!-- Header -->
         <header class="app-header">
-            <h1>Stock Manager</h1>
+            <div class="header-top">
+                <h1>Stock Manager</h1>
+                <button class="settings-btn" onclick="openSettingsModal()">
+                    <ion-icon name="settings-outline"></ion-icon>
+                </button>
+            </div>
             <div class="summary-card">
                 <div class="summary-item">
                     <span class="label">在庫総額</span>
@@ -85,11 +90,49 @@
 
         </main>
 
-        <!-- Floating Action Button -->
-        <button class="fab" onclick="openModal()">
-            <ion-icon name="add"></ion-icon>
-        </button>
+        <!-- Floating Action Buttons -->
+        <div class="fab-container">
+            <label class="fab secondary" for="camera-input">
+                <ion-icon name="camera"></ion-icon>
+            </label>
+            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none"
+                onchange="handleCameraInput(this)">
 
+            <button class="fab" onclick="openModal()">
+                <ion-icon name="add"></ion-icon>
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Settings Modal (API Key) -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>設定</h2>
+                <button class="close-btn" onclick="closeSettingsModal()">
+                    <ion-icon name="close"></ion-icon>
+                </button>
+            </div>
+            <div class="form-group">
+                <label>Google Gemini API Key</label>
+                <input type="password" id="api-key-input" placeholder="APIキーを入力">
+                <p class="note">※キーはブラウザ内にのみ保存されます。</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-save" onclick="saveApiKey()">保存</button>
+            </div>
+            <div style="margin-top: 16px; text-align: center;">
+                <a href="https://aistudio.google.com/app/apikey" target="_blank"
+                    style="color: var(--primary-color); font-size: 0.9rem;">APIキーを無料で取得する</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>AIが商品を解析中...</p>
     </div>
 
     <!-- Add/Edit Modal -->

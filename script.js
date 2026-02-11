@@ -6,11 +6,14 @@
 let items = [];
 const STORAGE_KEY = 'stock_manager_data';
 const PREFS_KEY = 'stock_manager_prefs'; // Local config (view mode)
+const API_KEY_STORAGE = 'gemini_api_key';
 
 // DOM Elements
 const inventoryListEl = document.getElementById('inventory-list');
 const shoppingListEl = document.getElementById('shopping-list');
 const modal = document.getElementById('item-modal');
+const settingsModal = document.getElementById('settings-modal');
+const loadingOverlay = document.getElementById('loading-overlay');
 const itemForm = document.getElementById('item-form');
 const shoppingBadge = document.getElementById('shopping-badge');
 const viewToggleBtn = document.querySelector('.view-toggle-btn');
@@ -415,6 +418,145 @@ function deleteItem() {
     if (id && confirm('本当に削除しますか？')) {
         deleteItemData(id);
         closeModal();
+    }
+}
+
+// -- Settings & API Key --
+
+function openSettingsModal() {
+    const key = localStorage.getItem(API_KEY_STORAGE) || '';
+    document.getElementById('api-key-input').value = key;
+    settingsModal.classList.add('active');
+}
+
+function closeSettingsModal() {
+    settingsModal.classList.remove('active');
+}
+
+function saveApiKey() {
+    const key = document.getElementById('api-key-input').value.trim();
+    if (key) {
+        localStorage.setItem(API_KEY_STORAGE, key);
+        alert('APIキーを保存しました');
+        closeSettingsModal();
+    } else {
+        alert('APIキーを入力してください');
+    }
+}
+
+// -- AI Camera Feature --
+
+async function handleCameraInput(input) {
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const apiKey = localStorage.getItem(API_KEY_STORAGE);
+
+        if (!apiKey) {
+            alert('AI機能を使うには、設定からGoogle Gemini APIキーを登録してください。');
+            input.value = ''; // Reset
+            return;
+        }
+
+        loadingOverlay.classList.add('active');
+
+        try {
+            const base64Image = await convertToBase64(file);
+            const result = await callGeminiAPI(base64Image, apiKey);
+            handleAIResponse(result);
+        } catch (error) {
+            console.error(error);
+            alert('AI解析に失敗しました: ' + error.message);
+        } finally {
+            loadingOverlay.classList.remove('active');
+            input.value = ''; // Reset
+        }
+    }
+}
+
+function convertToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+            // Remove "data:image/jpeg;base64," prefix for API
+            const base64 = reader.result.split(',')[1];
+            resolve(base64);
+        };
+        reader.onerror = error => reject(error);
+    });
+}
+
+async function callGeminiAPI(base64Image, apiKey) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+    const prompt = `
+        この画像を解析し、写っている商品の「商品名」「カテゴリ(food または goods)」「推定価格(日本円の数値のみ)」を推定してください。
+        回答は必ず以下のJSON形式のみで出力してください。Markdownのコードブロックは不要です。
+        { "name": "商品名", "category": "food", "price": 100 }
+    `;
+
+    const body = {
+        contents: [{
+            parts: [
+                { text: prompt },
+                { inline_data: { mime_type: "image/jpeg", data: base64Image } }
+            ]
+        }]
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || 'API Error');
+    }
+
+    const data = await response.json();
+    const text = data.candidates[0].content.parts[0].text;
+
+    // Clean up potential markdown formatting (```json ... ```)
+    const jsonStr = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(jsonStr);
+}
+
+function handleAIResponse(aiData) {
+    // 1. Try to match existing item
+    // Simple logic: Exact name match or fuzzy inclusion logic?
+    // Let's go with includes logic for better UX
+    const existingItem = items.find(i =>
+        i.name === aiData.name ||
+        i.name.includes(aiData.name) ||
+        aiData.name.includes(i.name)
+    );
+
+    if (existingItem) {
+        // Update stock
+        updateItem(existingItem.id, { quantity: existingItem.quantity + 1 });
+        const newQty = existingItem.quantity + 1; // updateItem saves async? No, sync in this app.
+        // Actually items array is updated in updateItem.
+        // We need to fetch it again or careful. 
+        // updateItem logic: items[index] = ...; saveData();
+        // So safe to say it's updated.
+        alert(`「${existingItem.name}」を認識しました。\n在庫を +1 しました (現在: ${items.find(i => i.id === existingItem.id).quantity}個)`);
+    } else {
+        // New Item
+        if (confirm(`「${aiData.name}」は未登録です。\n新規登録しますか？`)) {
+            openModal();
+            // Pre-fill form
+            document.getElementById('item-name').value = aiData.name;
+            document.getElementById('item-price').value = aiData.price;
+
+            const radios = document.getElementsByName('category');
+            radios.forEach(r => {
+                if (r.value === aiData.category) r.checked = true;
+            });
+
+            // Suggest threshold? Default 1.
+        }
     }
 }
 
