@@ -7,6 +7,8 @@ let items = [];
 const STORAGE_KEY = 'stock_manager_data';
 const PREFS_KEY = 'stock_manager_prefs'; // Local config (view mode)
 const API_KEY_STORAGE = 'gemini_api_key';
+const GROQ_API_KEY_STORAGE = 'groq_api_key';
+const AI_PROVIDER_STORAGE = 'ai_provider'; // 'gemini' or 'groq'
 
 // DOM Elements
 const inventoryListEl = document.getElementById('inventory-list');
@@ -31,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderShoppingList();
     updateStats();
     initSortable();
+    initScrollHeader();
 });
 
 // -- Data Management --
@@ -319,8 +322,11 @@ function applyViewMode() {
 function initSortable() {
     sortable = new Sortable(inventoryListEl, {
         animation: 150,
-        handle: '.drag-handle', // Drag handle selector
+        handle: '.drag-handle',
         ghostClass: 'sortable-ghost',
+        delay: 150,
+        delayOnTouchOnly: true,
+        touchStartThreshold: 5,
         onEnd: function (evt) {
             // Get new order from DOM
             const itemEls = inventoryListEl.children;
@@ -333,16 +339,44 @@ function initSortable() {
                 if (item) reorderedItems.push(item);
             });
 
-            // Should verify we didn't lose items (e.g. if filtered view but logic prevents it)
             if (reorderedItems.length === items.length) {
                 items = reorderedItems;
                 saveData();
             } else {
                 console.warn('Reorder mismatch, reloading');
-                renderInventory(); // Revert visual
+                renderInventory();
             }
         }
     });
+}
+
+// -- Auto-Hide Header on Scroll --
+
+function initScrollHeader() {
+    const header = document.querySelector('.app-header');
+    const tabs = document.querySelector('.tabs');
+    let lastScrollY = window.scrollY;
+    let ticking = false;
+
+    window.addEventListener('scroll', () => {
+        if (!ticking) {
+            window.requestAnimationFrame(() => {
+                const currentScrollY = window.scrollY;
+                if (currentScrollY > lastScrollY && currentScrollY > 80) {
+                    // Scrolling DOWN past 80px
+                    header.classList.add('header-hidden');
+                    tabs.classList.add('header-hidden');
+                } else {
+                    // Scrolling UP
+                    header.classList.remove('header-hidden');
+                    tabs.classList.remove('header-hidden');
+                }
+                lastScrollY = currentScrollY;
+                ticking = false;
+            });
+            ticking = true;
+        }
+    }, { passive: true });
 }
 
 // -- Modal / Form --
@@ -423,9 +457,29 @@ function deleteItem() {
 
 // -- Settings & API Key --
 
+function getSelectedProvider() {
+    return localStorage.getItem(AI_PROVIDER_STORAGE) || 'gemini';
+}
+
+function onProviderChange() {
+    const provider = document.querySelector('input[name="ai-provider"]:checked').value;
+    document.getElementById('gemini-settings').style.display = provider === 'gemini' ? '' : 'none';
+    document.getElementById('groq-settings').style.display = provider === 'groq' ? '' : 'none';
+}
+
 function openSettingsModal() {
-    const key = localStorage.getItem(API_KEY_STORAGE) || '';
-    document.getElementById('api-key-input').value = key;
+    const provider = getSelectedProvider();
+    // Set provider radio
+    const radios = document.querySelectorAll('input[name="ai-provider"]');
+    radios.forEach(r => { if (r.value === provider) r.checked = true; });
+
+    // Load API keys
+    document.getElementById('api-key-input').value = localStorage.getItem(API_KEY_STORAGE) || '';
+    document.getElementById('groq-api-key-input').value = localStorage.getItem(GROQ_API_KEY_STORAGE) || '';
+
+    // Show/hide provider sections
+    onProviderChange();
+
     settingsModal.classList.add('active');
 }
 
@@ -433,14 +487,58 @@ function closeSettingsModal() {
     settingsModal.classList.remove('active');
 }
 
-function saveApiKey() {
-    const key = document.getElementById('api-key-input').value.trim();
-    if (key) {
-        localStorage.setItem(API_KEY_STORAGE, key);
-        alert('APIキーを保存しました');
-        closeSettingsModal();
-    } else {
+function saveSettings() {
+    const provider = document.querySelector('input[name="ai-provider"]:checked').value;
+    localStorage.setItem(AI_PROVIDER_STORAGE, provider);
+
+    // Save Gemini key
+    const geminiKey = document.getElementById('api-key-input').value.trim();
+    if (geminiKey) localStorage.setItem(API_KEY_STORAGE, geminiKey);
+
+    // Save Groq key
+    const groqKey = document.getElementById('groq-api-key-input').value.trim();
+    if (groqKey) localStorage.setItem(GROQ_API_KEY_STORAGE, groqKey);
+
+    // Check that selected provider has a key
+    if (provider === 'gemini' && !geminiKey && !localStorage.getItem(API_KEY_STORAGE)) {
+        alert('Gemini APIキーを入力してください');
+        return;
+    }
+    if (provider === 'groq' && !groqKey && !localStorage.getItem(GROQ_API_KEY_STORAGE)) {
+        alert('Groq APIキーを入力してください');
+        return;
+    }
+
+    alert(`設定を保存しました（${provider === 'gemini' ? 'Gemini' : 'Groq'} を使用）`);
+    closeSettingsModal();
+}
+
+async function checkModels() {
+    const provider = document.querySelector('input[name="ai-provider"]:checked').value;
+
+    if (provider === 'groq') {
+        alert('Groq 利用可能モデル:\n- llama-3.2-11b-vision-preview\n- llama-3.2-90b-vision-preview');
+        return;
+    }
+
+    const key = document.getElementById('api-key-input').value.trim() || localStorage.getItem(API_KEY_STORAGE);
+    if (!key) {
         alert('APIキーを入力してください');
+        return;
+    }
+
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+        if (!response.ok) throw new Error(response.statusText);
+
+        const data = await response.json();
+        const models = data.models.filter(m => m.supportedGenerationMethods.includes('generateContent'));
+
+        const modelNames = models.map(m => m.name.replace('models/', '')).join('\n');
+        alert('利用可能なモデル:\n' + modelNames);
+        console.log(models);
+    } catch (e) {
+        alert('モデル一覧の取得に失敗しました: ' + e.message);
     }
 }
 
@@ -449,26 +547,42 @@ function saveApiKey() {
 async function handleCameraInput(input) {
     if (input.files && input.files[0]) {
         const file = input.files[0];
-        const apiKey = localStorage.getItem(API_KEY_STORAGE);
+        const provider = getSelectedProvider();
 
-        if (!apiKey) {
-            alert('AI機能を使うには、設定からGoogle Gemini APIキーを登録してください。');
-            input.value = ''; // Reset
-            return;
+        let apiKey;
+        if (provider === 'groq') {
+            apiKey = localStorage.getItem(GROQ_API_KEY_STORAGE);
+            if (!apiKey) {
+                alert('AI機能を使うには、設定からGroq APIキーを登録してください。');
+                input.value = '';
+                return;
+            }
+        } else {
+            apiKey = localStorage.getItem(API_KEY_STORAGE);
+            if (!apiKey) {
+                alert('AI機能を使うには、設定からGemini APIキーを登録してください。');
+                input.value = '';
+                return;
+            }
         }
 
         loadingOverlay.classList.add('active');
 
         try {
             const base64Image = await convertToBase64(file);
-            const result = await callGeminiAPI(base64Image, apiKey);
+            let result;
+            if (provider === 'groq') {
+                result = await callGroqAPI(base64Image, apiKey);
+            } else {
+                result = await callGeminiAPI(base64Image, apiKey);
+            }
             handleAIResponse(result);
         } catch (error) {
             console.error(error);
             alert('AI解析に失敗しました: ' + error.message);
         } finally {
             loadingOverlay.classList.remove('active');
-            input.value = ''; // Reset
+            input.value = '';
         }
     }
 }
@@ -487,7 +601,7 @@ function convertToBase64(file) {
 }
 
 async function callGeminiAPI(base64Image, apiKey) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     const prompt = `
         この画像を解析し、写っている商品の「商品名」「カテゴリ(food または goods)」「推定価格(日本円の数値のみ)」を推定してください。
@@ -517,6 +631,57 @@ async function callGeminiAPI(base64Image, apiKey) {
 
     const data = await response.json();
     const text = data.candidates[0].content.parts[0].text;
+
+    // Clean up potential markdown formatting (```json ... ```)
+    const jsonStr = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(jsonStr);
+}
+
+async function callGroqAPI(base64Image, apiKey) {
+    const model = document.getElementById('groq-model-select')?.value || 'llama-3.2-11b-vision-preview';
+    const url = 'https://api.groq.com/openai/v1/chat/completions';
+
+    const prompt = `
+        この画像を解析し、写っている商品の「商品名」「カテゴリ(food または goods)」「推定価格(日本円の数値のみ)」を推定してください。
+        回答は必ず以下のJSON形式のみで出力してください。Markdownのコードブロックは不要です。
+        { "name": "商品名", "category": "food", "price": 100 }
+    `;
+
+    const body = {
+        model: model,
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: prompt },
+                    {
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:image/jpeg;base64,${base64Image}`
+                        }
+                    }
+                ]
+            }
+        ],
+        max_tokens: 300
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || 'Groq API Error');
+    }
+
+    const data = await response.json();
+    const text = data.choices[0].message.content;
 
     // Clean up potential markdown formatting (```json ... ```)
     const jsonStr = text.replace(/```json|```/g, '').trim();

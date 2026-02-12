@@ -73,6 +73,11 @@ body {
     position: sticky;
     top: 0;
     z-index: 10;
+    transition: transform 0.3s ease;
+}
+
+.app-header.header-hidden {
+    transform: translateY(-100%);
 }
 
 .app-header h1 {
@@ -147,8 +152,12 @@ body {
     box-shadow: var(--shadow-sm);
     position: sticky;
     top: var(--header-height);
-    /* This might need adjustment based on scroll */
     z-index: 9;
+    transition: top 0.3s ease;
+}
+
+.tabs.header-hidden {
+    top: 0;
 }
 
 .tab-btn {
