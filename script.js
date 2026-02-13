@@ -113,14 +113,15 @@ function renderInventory() {
         return;
     }
 
-    filteredItems.forEach(item => {
+    filteredItems.forEach((item, index) => {
         const isLowStock = item.quantity <= item.threshold || item.quantity === 0;
         const lowStockClass = isLowStock ? 'low-stock' : '';
         const categoryIcon = item.category === 'food' ? 'restaurant-outline' : 'home-outline';
 
         const card = document.createElement('div');
         card.className = `inventory-item ${item.category} ${lowStockClass}`;
-        card.setAttribute('data-id', item.id); // For SortableJS
+        card.setAttribute('data-id', item.id);
+        card.style.setProperty('--i', index);
 
         card.innerHTML = `
             <div class="drag-handle"><ion-icon name="menu-outline"></ion-icon></div>
@@ -170,13 +171,13 @@ function renderShoppingList() {
         return;
     }
 
-    shoppingItems.forEach(item => {
+    shoppingItems.forEach((item, index) => {
         const needed = item.threshold - item.quantity;
         const estimatedCost = needed * item.price;
 
         const card = document.createElement('div');
         card.className = `shopping-item`;
-        // Check local storage for checked state to persist checkboxes during navigation
+        card.style.setProperty('--i', index);
         const isChecked = localStorage.getItem(`checked_${item.id}`) === 'true';
         if (isChecked) card.classList.add('checked');
 
@@ -208,8 +209,18 @@ function updateStats() {
         }
     });
 
-    document.getElementById('total-inventory-value').innerText = `¥${totalInventoryVal.toLocaleString()}`;
-    document.getElementById('estimated-cost').innerText = `¥${totalShoppingEst.toLocaleString()}`;
+    const invEl = document.getElementById('total-inventory-value');
+    const estEl = document.getElementById('estimated-cost');
+    invEl.innerText = `¥${totalInventoryVal.toLocaleString()}`;
+    estEl.innerText = `¥${totalShoppingEst.toLocaleString()}`;
+
+    // Pulse animation on value change
+    invEl.classList.add('value-updated');
+    estEl.classList.add('value-updated');
+    setTimeout(() => {
+        invEl.classList.remove('value-updated');
+        estEl.classList.remove('value-updated');
+    }, 300);
 }
 
 // -- Actions --
@@ -220,6 +231,21 @@ function adjustQuantity(id, change) {
 
     const newQty = Math.max(0, item.quantity + change);
     if (newQty !== item.quantity) {
+        // Animate the qty display inline before re-render
+        const card = document.querySelector(`.inventory-item[data-id="${id}"]`);
+        if (card) {
+            const qtyEl = card.querySelector('.item-qty');
+            if (qtyEl) {
+                qtyEl.textContent = newQty;
+                qtyEl.classList.add('qty-bump');
+                // Defer the full re-render so the animation is visible
+                setTimeout(() => {
+                    item.quantity = newQty;
+                    saveData();
+                }, 200);
+                return;
+            }
+        }
         updateItem(id, { quantity: newQty });
     }
 }
@@ -324,6 +350,7 @@ function initSortable() {
         animation: 150,
         handle: '.drag-handle',
         ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
         delay: 150,
         delayOnTouchOnly: true,
         touchStartThreshold: 5,
