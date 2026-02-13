@@ -231,19 +231,16 @@ function adjustQuantity(id, change) {
 
     const newQty = Math.max(0, item.quantity + change);
     if (newQty !== item.quantity) {
-        // Animate the qty display inline before re-render
+        // Animate qty text inline (bump effect)
         const card = document.querySelector(`.inventory-item[data-id="${id}"]`);
         if (card) {
             const qtyEl = card.querySelector('.item-qty');
             if (qtyEl) {
                 qtyEl.textContent = newQty;
+                qtyEl.classList.remove('qty-bump');
+                // Force reflow to restart animation
+                void qtyEl.offsetWidth;
                 qtyEl.classList.add('qty-bump');
-                // Defer the full re-render so the animation is visible
-                setTimeout(() => {
-                    item.quantity = newQty;
-                    saveData();
-                }, 200);
-                return;
             }
         }
         updateItem(id, { quantity: newQty });
@@ -347,19 +344,32 @@ function applyViewMode() {
 
 function initSortable() {
     sortable = new Sortable(inventoryListEl, {
-        animation: 150,
+        animation: 200,
         handle: '.drag-handle',
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
-        delay: 150,
+        dragClass: 'sortable-drag',
+        forceFallback: true,
+        fallbackClass: 'sortable-fallback',
+        fallbackOnBody: true,
+        fallbackTolerance: 3,
+        delay: 100,
         delayOnTouchOnly: true,
-        touchStartThreshold: 5,
+        touchStartThreshold: 3,
+        scroll: true,
+        scrollSensitivity: 60,
+        scrollSpeed: 10,
+        onStart: function () {
+            document.body.style.overflow = 'hidden';
+            document.body.style.touchAction = 'none';
+        },
         onEnd: function (evt) {
-            // Get new order from DOM
+            document.body.style.overflow = '';
+            document.body.style.touchAction = '';
+
             const itemEls = inventoryListEl.children;
             const newOrderIds = Array.from(itemEls).map(el => el.getAttribute('data-id'));
 
-            // Reorder 'items' array based on newOrderIds
             const reorderedItems = [];
             newOrderIds.forEach(id => {
                 const item = items.find(i => i.id === id);

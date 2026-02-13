@@ -583,6 +583,18 @@ body {
     transform: scale(1.02);
 }
 
+.sortable-fallback {
+    opacity: 0.9 !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2) !important;
+    transform: scale(1.04) rotate(1.5deg) !important;
+    border-radius: var(--radius-md);
+    z-index: 9999 !important;
+}
+
+.sortable-drag {
+    opacity: 0 !important;
+}
+
 /* Shopping List Item */
 .shopping-item {
     background: var(--bg-card);
